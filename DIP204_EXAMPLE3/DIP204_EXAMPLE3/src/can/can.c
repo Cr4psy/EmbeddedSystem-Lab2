@@ -631,8 +631,8 @@ Bool CANGetMsg( int Channel, UINT32* pIdentifier, UINT8* Msg, UINT8* pMsgSize )
         if (((S2>>3)&0x01)==0) //format the 11 bit identifier
         {
             *pIdentifier = S1<<3 | S2>>5;
-            LED_On(LED0);
-            LED_Off(LED1);
+            //LED_On(LED0);
+            //LED_Off(LED1);
 
              //dip204_set_cursor_position(1,4);
              //dip204_printf_string("St Id");
@@ -640,8 +640,8 @@ Bool CANGetMsg( int Channel, UINT32* pIdentifier, UINT8* Msg, UINT8* pMsgSize )
         else if (((S2>>3)&0x01)==1) //format the 29 bit identifier
         {
             *pIdentifier =  (S1<<21 |((S2>>3 & 0x1c)|(S2&0x03))<<16 | S3 <<8 |  S4);
-            LED_On(LED1);
-            LED_Off(LED0);
+            //LED_On(LED1);
+            //LED_Off(LED0);
 
             //dip204_set_cursor_position(1,4);
             //dip204_printf_string("Ex Id");
@@ -671,7 +671,7 @@ Bool CANGetMsg( int Channel, UINT32* pIdentifier, UINT8* Msg, UINT8* pMsgSize )
                     CANSendMsg( Channel,*pIdentifier, Msg, 4, 0 );
                     dip204_set_cursor_position(17,4);
                     dip204_printf_string("Re F");
-                    LED_On(LED2);
+                    //LED_On(LED2);
                 }
 
         //clear CANINTF RX01F_RESET=0x00. To be able to receive new messages
