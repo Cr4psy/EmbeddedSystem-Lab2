@@ -68,7 +68,9 @@ UINT32 ourID = 0x01206;
 
 void displaySensors(int, int, int,int,int, int);
 void displayReceiveMsg();
-void LEDState(UINT8,UINT8); //Change the led state
+void LEDState(UINT8,UINT8, int); //Change the led state
+
+int timerTime = 10;//time between the execution of loop while
 
 int main(void) {
 	/*Variable*/
@@ -81,9 +83,9 @@ int main(void) {
 	int nodeFault = 0;
 	int nodeWarm = 0;
 	int timerCounter = 0;//Count the time
-	int timerTime = 10;//time between the execution of loop while
+
 	int counter = 0; //Count the number of ID
-	int ValueSummer[20][5] = {0};
+	int ValueSummer[20][6] = {0};
 	UINT32 IDSummer[20] = {0};
 		
 	//Problems flag
@@ -180,14 +182,15 @@ int main(void) {
 			
 			//Compute the mean of the temp and light (include our own value)
 			for (i=0; i<counter; i++){
-				if (ValueSummer[i][4]!=TRUE)
+				if (ValueSummer[i][5]!=TRUE)
 				{
 					temp_avg = temp_avg + ValueSummer[i][0];
 					light_avg = light_avg + ValueSummer[i][1];
 					pot_avg = pot_avg + ValueSummer[i][2];
-					nodeNight=nodeNight+ValueSummer[i][3];//Sum of night node				
+					nodeNight=nodeNight+ValueSummer[i][3];//Sum of night node
+					nodeWarm=nodeWarm+	ValueSummer[i][4];//Sum of warm node
 				}
-				nodeFault=nodeFault+ValueSummer[i][4];//# of faulty nodes			
+				nodeFault=nodeFault+ValueSummer[i][5];//# of faulty nodes			
 			}
 			//Compute the average and add the value of the actual board.
 			temp_avg=(temp_avg+adc_value_temp)/(counter-nodeFault+1);
@@ -232,7 +235,7 @@ int main(void) {
 			}
 			else//Normal status
 			{
-				flagStatus =  0b000;
+				flagStatus =  flagStatus&0b100;//Set to zero only warning and emergency, no faulty
 			}
 			
 			
@@ -241,7 +244,7 @@ int main(void) {
 			
 			/*RESET*/		
 			//Reset the values and ID
-			int ValueSummer[256][5] = {0};
+			int ValueSummer[256][6] = {0};
 			UINT32 IDSummer[256] = {0};
 			counter=0;//Reset the number of ID
 			temp_avg=0;
@@ -263,8 +266,9 @@ int main(void) {
 					ValueSummer[counter][0] = (msg[0] << 8) | msg[1]; //Temperature
 					ValueSummer[counter][1] = (msg[2] << 8) | msg[3]; //Light
 					ValueSummer[counter][2] = msg[4];//Potentiometer
-					ValueSummer[counter][3] = (msg[5] & 0b01);//Night
+					ValueSummer[counter][3] = (msg[5] & 0b001);//Night
 					ValueSummer[counter][4] = (msg[5] & 0b010)>>1;//Too warm
+					ValueSummer[counter][5] = (msg[5] & 0b100)>>2;//Faulty
 					counter++;//Nb of ID
 				}
 				else{//If already some ID in the array
@@ -276,6 +280,7 @@ int main(void) {
 							ValueSummer[i][2] = msg[4];//pot
 							ValueSummer[i][3] = (msg[5] & 0b01);//Night
 							ValueSummer[i][4] = (msg[5] & 0b010)>>1;//Too warm
+							ValueSummer[counter][5] = (msg[5] & 0b100)>>2;//Faulty
 							flag=TRUE;
 							break;
 						}
@@ -289,6 +294,7 @@ int main(void) {
 						ValueSummer[counter][2] = msg[4];//pot
 						ValueSummer[counter][3] = (msg[5] & 0b01);//Night
 						ValueSummer[counter][4] = (msg[5] & 0b010)>>1;//Too warm
+						ValueSummer[counter][5] = (msg[5] & 0b100)>>2;//Faulty
 						counter++;//Nb of ID
 					}
 				}//else
@@ -326,7 +332,7 @@ int main(void) {
 		}
 		
 		
-		LEDState(flagState, flagStatus);//Run every 10ms
+		LEDState(flagState, flagStatus, timerCounter);//Run every 10ms
 		
 		
 		delay_ms(timerTime);//Force the while loop to run max every timerTime ms
@@ -340,9 +346,40 @@ int main(void) {
 }
 
 //Manage the led STATE
-void LEDState(UINT8 flagState, UINT8 flagStatus){//Night / warm / fault
-	LED_Off(0b111);//Use from led1 to 3
+void LEDState(UINT8 flagState, UINT8 flagStatus, int timerCounter){//Night / warm / fault, warning/ emergency / faulty
+	//State
+	LED_Off(0b111);
 	LED_On(flagState);
+	
+	//Status
+	if (flagStatus == 0b000)//Normal
+	{
+		LED_On(0b1<<5);
+		LED_Off(0b1<<6);
+	}
+	else{
+		LED_Off(0b1<<5);
+		if (flagStatus == 0b001)//Warning
+		{
+			if(timerCounter%(2000/timerTime)){
+				LED_Toggle(0b1<<6);//Blink every second
+			}
+		}
+		else if (flagStatus == 0b010)//Emergency
+		{
+			if(timerCounter%(100/timerTime)){
+				LED_Toggle(0b1<<6);//Blink every x second
+			}
+		}
+		else if (flagStatus == 0b100)//Faulty
+		{
+			if(timerCounter%(500/timerTime)){
+				LED_Toggle(0b1<<6);//Blink every x second
+			}
+		}
+	}
+	
+	
 	//LED_On(((flagState&0b001)<<3)|((flagState&0b110)<<4));//Shift due to double color led
 }
 
