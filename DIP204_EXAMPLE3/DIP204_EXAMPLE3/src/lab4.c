@@ -66,8 +66,9 @@ UINT32 Ident;
 UINT8 msg[8], mSize;
 UINT32 ourID = 0x01206;
 
-void displaySensors(int, int, int,int,int);
+void displaySensors(int, int, int,int,int, int);
 void displayReceiveMsg();
+void LEDState(UINT8,UINT8); //Change the led state
 
 int main(void) {
 	/*Variable*/
@@ -76,16 +77,24 @@ int main(void) {
 	int temp_avg = 0;
 	int light_avg = 0;
 	int pot_avg = 0;
+	int nodeNight = 0;
+	int nodeFault = 0;
+	int nodeWarm = 0;
 	int timerCounter = 0;//Count the time
 	int timerTime = 10;//time between the execution of loop while
 	int counter = 0; //Count the number of ID
-	int ValueSummer[20][3] = {0};
+	int ValueSummer[20][5] = {0};
 	UINT32 IDSummer[20] = {0};
 		
 	//Problems flag
-	bool nightFlag;
-	bool warmFlag;
-	bool faultFlag;
+	UINT8 flagState = 0;/*	001 : night
+							010 : warm temperature
+							100 : fault
+							*/
+	UINT8 flagStatus = 0;/*	00 : Normal
+							01 : Warning status 
+							10 : Emergency status
+							*/
 
 	//CAN Communication variable
 	UINT32 Mask = 0xff00;//Mask
@@ -171,47 +180,76 @@ int main(void) {
 			
 			//Compute the mean of the temp and light (include our own value)
 			for (i=0; i<counter; i++){
-				temp_avg = temp_avg + ValueSummer[i][0];
-				light_avg = light_avg + ValueSummer[i][1];
-				pot_avg = pot_avg + ValueSummer[i][2];
+				if (ValueSummer[i][4]!=TRUE)
+				{
+					temp_avg = temp_avg + ValueSummer[i][0];
+					light_avg = light_avg + ValueSummer[i][1];
+					pot_avg = pot_avg + ValueSummer[i][2];
+					nodeNight=nodeNight+ValueSummer[i][3];//Sum of night node				
+				}
+				nodeFault=nodeFault+ValueSummer[i][4];//# of faulty nodes			
 			}
 			//Compute the average and add the value of the actual board.
-			temp_avg=(temp_avg+adc_value_temp)/(counter+1);
-			light_avg=(light_avg+adc_value_light)/(counter+1);
-			pot_avg=(pot_avg+adc_value_pot)/(counter+1);
+			temp_avg=(temp_avg+adc_value_temp)/(counter-nodeFault+1);
+			light_avg=(light_avg+adc_value_light)/(counter-nodeFault+1);
+			pot_avg=(pot_avg+adc_value_pot)/(counter-nodeFault+1);
 			
-			/*Problems states*/
-			nightFlag = FALSE;
-			warmFlag=FALSE;
-			faultFlag=FALSE;
+			/*Problems states for this node*/
+			flagState=0;//Reset flags
 			//Night/Day
 			if (adc_value_light<(0.5*light_avg))
 			{
-				nightFlag = TRUE;
+				flagState = (flagState | 0b001);
 			}
 			//Temperature Warm
 			if (adc_value_temp>(1.15*temp_avg))
 			{
-				warmFlag=TRUE;
+				flagState = (flagState | 0b010);
 			}
 			//Cold temperature -> Fault
 			if (adc_value_temp<(0.5*temp_avg))
 			{
-				faultFlag=TRUE;
+				flagState = (flagState | 0b100);
+			}
+			
+			
+			/*Status*/
+			nodeNight=nodeNight+(flagState&0b001 == 1);//Add this node result
+			nodeWarm=nodeWarm+((flagState&0b010)>>1 == 1);//Add this node result
+			nodeFault=nodeFault+((flagState&0b100)>>1 == 1);//Add this node result
+						
+			if (nodeWarm==1)//Warning state
+			{
+				flagStatus=0b001;
+			}
+			else if (nodeWarm > 1)//Emergency state
+			{
+				flagStatus = 0b010;
+			}
+			else if (nodeFault>0)//Faulty state
+			{
+				flagStatus = 0b100;
+			}
+			else//Normal status
+			{
+				flagStatus =  0b000;
 			}
 			
 			
 			//Print everything
-			displaySensors(counter,adc_value_pot,pot_avg,adc_value_light,light_avg);//Display and convert the sensors valuesadc_value_temp, temp_avg
+			displaySensors(counter+1,adc_value_pot,pot_avg,adc_value_light,light_avg,nodeNight);//Display and convert the sensors valuesadc_value_temp, temp_avg, +1 to take our node
 			
 			/*RESET*/		
 			//Reset the values and ID
-			int ValueSummer[256][3] = {0};
+			int ValueSummer[256][5] = {0};
 			UINT32 IDSummer[256] = {0};
 			counter=0;//Reset the number of ID
 			temp_avg=0;
 			light_avg=0;
 			pot_avg=0;
+			nodeNight=0;
+			nodeFault = 0;
+			nodeWarm = 0;
 					
 			
 		}
@@ -225,6 +263,8 @@ int main(void) {
 					ValueSummer[counter][0] = (msg[0] << 8) | msg[1]; //Temperature
 					ValueSummer[counter][1] = (msg[2] << 8) | msg[3]; //Light
 					ValueSummer[counter][2] = msg[4];//Potentiometer
+					ValueSummer[counter][3] = (msg[5] & 0b01);//Night
+					ValueSummer[counter][4] = (msg[5] & 0b010)>>1;//Too warm
 					counter++;//Nb of ID
 				}
 				else{//If already some ID in the array
@@ -234,6 +274,8 @@ int main(void) {
 							ValueSummer[i][0] = (msg[0] << 8) | msg[1]; //Temperature
 							ValueSummer[i][1] = (msg[2] << 8) | msg[3]; //Light
 							ValueSummer[i][2] = msg[4];//pot
+							ValueSummer[i][3] = (msg[5] & 0b01);//Night
+							ValueSummer[i][4] = (msg[5] & 0b010)>>1;//Too warm
 							flag=TRUE;
 							break;
 						}
@@ -245,6 +287,8 @@ int main(void) {
 						ValueSummer[counter][0] = (msg[0] << 8) | msg[1]; //Temperature
 						ValueSummer[counter][1] = (msg[2] << 8) | msg[3]; //Light
 						ValueSummer[counter][2] = msg[4];//pot
+						ValueSummer[counter][3] = (msg[5] & 0b01);//Night
+						ValueSummer[counter][4] = (msg[5] & 0b010)>>1;//Too warm
 						counter++;//Nb of ID
 					}
 				}//else
@@ -269,13 +313,20 @@ int main(void) {
 				//Separate the 10 bits into 2 and 8;
 				msg[2] = adc_value_temp >> 8;
 				msg[3] = adc_value_temp & 0x00ff;
-			
+				
+				//Potentiometer
 				msg[4]=adc_value_pot;//Change the range form 0-1023 to 0-255 and convert to bytes
-			
+						
+				//Problems flag
+				msg[5]=flagState;//night / warm / fault
+				
 				// Channel, Identifier (max 0x1fffffff (29 bits)), Message, Number of bytes, R //or 0 (Remote frame or no remote frame).
-				CANSendMsg( 0, ourID, msg, 5, 0 );
+				CANSendMsg( 0, ourID, msg, 6, 0 );
 			}
 		}
+		
+		
+		LEDState(flagState, flagStatus);//Run every 10ms
 		
 		
 		delay_ms(timerTime);//Force the while loop to run max every timerTime ms
@@ -288,8 +339,15 @@ int main(void) {
 	return 0;
 }
 
+//Manage the led STATE
+void LEDState(UINT8 flagState, UINT8 flagStatus){//Night / warm / fault
+	LED_Off(0b111);//Use from led1 to 3
+	LED_On(flagState);
+	//LED_On(((flagState&0b001)<<3)|((flagState&0b110)<<4));//Shift due to double color led
+}
 
-void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLight){
+//Write on the display
+void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLight, int nodeNight){
 		
 		
 			/*Print on the display*/
@@ -298,6 +356,26 @@ void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLigh
 			//ID
 			dip204_set_cursor_position(1,1);
 			dip204_printf_string("#Node:%d",nbID);
+			
+			//Night/Day
+			dip204_set_cursor_position(9,1);
+			dip204_printf_string("#Daylight:%d",(nbID-nodeNight));
+			
+			//temperature
+			dip204_set_cursor_position(1,2);
+			dip204_printf_string("Temp:");
+			dip204_set_cursor_position(8,2);
+			dip204_printf_string("%d",temperature);
+			dip204_set_cursor_position(12,2);
+			dip204_printf_string("%d", avgTemp);
+						
+			//Light
+			dip204_set_cursor_position(1,3);
+			dip204_printf_string("Light:");
+			dip204_set_cursor_position(8,3);
+			dip204_printf_string("%d",light);
+			dip204_set_cursor_position(12,3);
+			dip204_printf_string("%d", avgLight);
 			
 		
 			return;
