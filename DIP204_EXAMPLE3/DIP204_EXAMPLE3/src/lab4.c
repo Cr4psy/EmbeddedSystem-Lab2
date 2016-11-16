@@ -64,13 +64,18 @@ const gpio_map_t ADC_GPIO_MAP = {
 
 UINT32 Ident;
 UINT8 msg[8], mSize;
-UINT32 ourID = 0x01212;
+UINT32 ourID = 0x01201;
 
-void displaySensors(int, int, int,int,int, int, UINT8);
+void displaySensors(int, int, int,int,int, int);
 void displayReceiveMsg();
-void LEDState(UINT8,UINT8, int); //Change the led state
+void LEDState(UINT8, int); //Change the led state
+void Button(int);
 
 int timerTime = 10;//time between the execution of loop while
+UINT8 flagStatus = 0;/*	00 : Normal
+						01 : Warning status 
+						10 : Emergency status
+						*/
 
 int main(void) {
 	/*Variable*/
@@ -93,10 +98,7 @@ int main(void) {
 							010 : warm temperature
 							100 : fault
 							*/
-	UINT8 flagStatus = 0;/*	00 : Normal
-							01 : Warning status 
-							10 : Emergency status
-							*/
+
 
 	//CAN Communication variable
 	UINT32 Mask = 0xff00;//Mask
@@ -129,6 +131,8 @@ int main(void) {
 	adc_enable(&AVR32_ADC, EXAMPLE_ADC_TEMPERATURE_CHANNEL);
 	adc_enable(&AVR32_ADC, EXAMPLE_ADC_LIGHT_CHANNEL);
 	adc_enable(&AVR32_ADC, EXAMPLE_ADC_POTENTIOMETER_CHANNEL);
+	
+	gpio_enable_gpio_pin(88);
 	
 	//spidatareadpointer=&spidataread;
 	pm_switch_to_osc0(&AVR32_PM, FOSC0, OSC0_STARTUP);
@@ -232,40 +236,44 @@ int main(void) {
 			/*Status*/
 			nodeNight=nodeNight+(flagState&0b001 == 1);//Add this node result
 			nodeWarm=nodeWarm+((flagState&0b010)>>1 == 1);//Add this node result
-			nodeFault=nodeFault+((flagState&0b100)>>1 == 1);//Add this node result
+			nodeFault=nodeFault+((flagState&0b100)>>2 == 1);//Add this node result
 						
 			if (nodeWarm==1)//Warning state
 			{
-				flagStatus=0b001;
+				flagStatus= flagStatus | 0b001;
 			}
 			else if (nodeWarm > 1)//Emergency state
 			{
-				flagStatus = 0b010;
-			}
-			else if (nodeFault>0)//Faulty state
-			{
-				flagStatus = 0b100;
+				flagStatus = flagStatus | 0b010;
 			}
 			else//Normal status
 			{
-				flagStatus =  flagStatus&0b100;//Set to zero only warning and emergency, no faulty
+				flagStatus =  flagStatus&0b010;//Set to zero only warning and emergency, no faulty
 			}
 			
 			
-			//Print everything
-			displaySensors(counter+1,adc_value_temp,temp_avg,adc_value_light,light_avg, nodeNight, flagStatus);//Display and convert the sensors valuesadc_value_temp, temp_avg, +1 to take our node
+			/*else if (nodeFault>0)//Faulty state
+			{
+				flagStatus = 0b100;
+			}*/
+
 			
-			LEDState(flagState, flagStatus, timerCounter);//Run every 10ms
+			
+			//Print everything
+			displaySensors(counter+1,adc_value_temp,temp_avg,adc_value_light,light_avg, nodeNight);//Display and convert the sensors valuesadc_value_temp, temp_avg, +1 to take our node
+			
+			LEDState(flagState, timerCounter);//Run every 10ms
+			
+			
 			
 			/*RESET*/
 			//Reset the values and ID
 			int ValueSummer[256][6] = {0};
 			UINT32 IDSummer[256] = {0};
-			counter = 0;//Reset the number of ID
-
-					
-			
+			counter = 0;//Reset the number of ID				
 		}
+		
+		Button(nodeWarm);
 		
 		/*READ BUS*/
 		if(CANRxReady(0)){//If able to connect to the bus
@@ -355,8 +363,22 @@ int main(void) {
 	return 0;
 }
 
+
+
+//BUTTON
+//Reset emergency mode
+void Button(int nodeWarm)
+{
+	if ((gpio_get_pin_value(88)==0) && (nodeWarm<2))
+	{	
+
+		flagStatus = flagStatus & 0b101;	
+	}
+	
+}
+
 //Manage the led STATE
-void LEDState(UINT8 flagState, UINT8 flagStatus, int timerCounter){//Night / warm / fault, warning/ emergency / faulty
+void LEDState(UINT8 flagState, int timerCounter){//Night / warm / fault, warning/ emergency / faulty
 	//State
 	LED_Off(0b111);
 	LED_On(flagState);
@@ -369,23 +391,24 @@ void LEDState(UINT8 flagState, UINT8 flagStatus, int timerCounter){//Night / war
 	}
 	else{
 		LED_Off(0b1<<5);
-		if (((flagStatus >>0)& 0b01) == 1)//Warning
+		if (((flagStatus >>1)& 0b01) == 1)//Emergency
+		{
+			if(timerCounter%(500/timerTime)==0){
+				LED_Toggle(0b101<<4);//Led 4 6 Blink every x second
+			}
+		}	
+		else if (((flagStatus>>0)& 0b01) == 1)//Warning
 		{
 			LED_Off(0b1<<6);
 			if(timerCounter%(500/timerTime)==0){
 				LED_Toggle(0b1<<4);//Blink every second
 			}
 		}
-		else if (((flagStatus >>1)& 0b01) == 1)//Emergency
-		{
-			if(timerCounter%(500/timerTime)==0){
-				LED_Toggle(0b101<<4);//Led 4 6 Blink every x second
-			}
-		}	
+		
 	} 
 	
 	/*ONE NODE IS FAULTY*/
-	if (((flagStatus >>2)& 0b01) == 1)//Faulty
+	/*if (((flagStatus >>2)& 0b01) == 1)//Faulty
 	{
 		if(timerCounter%(200/timerTime)==0){
 			LED_Toggle(0b1<<3);//Blink every x second
@@ -393,14 +416,14 @@ void LEDState(UINT8 flagState, UINT8 flagStatus, int timerCounter){//Night / war
 	}
 	else{
 		LED_Off(0b1<<3);
-	}
+	}*/
 	
 	
 	//LED_On(((flagState&0b001)<<3)|((flagState&0b110)<<4));//Shift due to double color led
 }
 
 //Write on the display
-void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLight, int nodeNight,  UINT8 flagStatus){
+void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLight, int nodeNight){
 		
 		
 			/*Print on the display*/
@@ -431,21 +454,22 @@ void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLigh
 			dip204_printf_string("%d", avgLight);
 			
 			//STATUS
-			if (flagStatus == 0b001)//Warning state
-			{
-				dip204_set_cursor_position(1,4);
-				dip204_printf_string("WARNING        ");
-			}
-			else if (flagStatus == 0b010)//Emergency state
+
+			if (((flagStatus >>1)& 0b01) == 1)//Emergency state
 			{
 				dip204_set_cursor_position(1,4);
 				dip204_printf_string("EMERGENCY       ");
 			}
-			else if (flagStatus == 0b100)//Faulty state
+			else if (((flagStatus >>0)& 0b01) == 1)//Warning state
+			{
+				dip204_set_cursor_position(1,4);
+				dip204_printf_string("WARNING        ");
+			}
+			/*else if (flagStatus == 0b100)//Faulty state
 			{
 				dip204_set_cursor_position(1,4);
 				dip204_printf_string("FAULTY           ");
-			}
+			}*/
 			else//Normal status
 			{
 				dip204_set_cursor_position(1,4);
