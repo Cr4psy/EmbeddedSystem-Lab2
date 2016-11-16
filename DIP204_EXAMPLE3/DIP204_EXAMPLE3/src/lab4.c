@@ -64,7 +64,7 @@ const gpio_map_t ADC_GPIO_MAP = {
 
 UINT32 Ident;
 UINT8 msg[8], mSize;
-UINT32 ourID = 0x01201;
+UINT32 ourID = 0x01204;
 
 void displaySensors(int, int, int,int,int, int);
 void displayReceiveMsg();
@@ -101,8 +101,8 @@ int main(void) {
 
 
 	//CAN Communication variable
-	UINT32 Mask = 0xff00;//Mask
-	UINT32 flt = 0x1200;//Filter
+	UINT32 Mask = 0x1fff00;//Mask
+	UINT32 flt =  0x001200;//Filter
 	UINT32 Flt[] = {flt,flt,flt,flt,flt,flt};
 	int Channel = 0;
 	
@@ -180,7 +180,7 @@ int main(void) {
 			/*#####################################################################################################################*/
 			/*#####################################################################################################################*/
 			//Should be value pot
-			adc_value_temp = (adc_get_value(&AVR32_ADC,EXAMPLE_ADC_POTENTIOMETER_CHANNEL));//Change the range form 0-1023 to 0-255 and convert to bytes
+			adc_value_temp = (adc_get_value(&AVR32_ADC,EXAMPLE_ADC_POTENTIOMETER_CHANNEL));//*255/1023);//Change the range form 0-1023 to 0-255 and convert to bytes
 		}
 		
 		/*PRINT AND RESET*/	
@@ -248,14 +248,18 @@ int main(void) {
 			}
 			else//Normal status
 			{
-				flagStatus =  flagStatus&0b010;//Set to zero only warning and emergency, no faulty
+				flagStatus =  flagStatus&0b010;//Set to zero only warning and  no emergency (Need to press the button)
 			}
 			
 			
-			/*else if (nodeFault>0)//Faulty state
+			if (nodeFault>0)//Faulty state
 			{
-				flagStatus = 0b100;
-			}*/
+				flagStatus = flagState | 0b100;
+			}
+			else
+			{
+				flagStatus = flagStatus & 0b011;
+			}
 
 			
 			
@@ -372,7 +376,7 @@ void Button(int nodeWarm)
 	if ((gpio_get_pin_value(88)==0) && (nodeWarm<2))
 	{	
 
-		flagStatus = flagStatus & 0b101;	
+		flagStatus = flagStatus & 0b101;//RESET emergency
 	}
 	
 }
@@ -408,7 +412,7 @@ void LEDState(UINT8 flagState, int timerCounter){//Night / warm / fault, warning
 	} 
 	
 	/*ONE NODE IS FAULTY*/
-	/*if (((flagStatus >>2)& 0b01) == 1)//Faulty
+	if (((flagStatus >>2)& 0b01) == 1)//Faulty
 	{
 		if(timerCounter%(200/timerTime)==0){
 			LED_Toggle(0b1<<3);//Blink every x second
@@ -416,7 +420,7 @@ void LEDState(UINT8 flagState, int timerCounter){//Night / warm / fault, warning
 	}
 	else{
 		LED_Off(0b1<<3);
-	}*/
+	}
 	
 	
 	//LED_On(((flagState&0b001)<<3)|((flagState&0b110)<<4));//Shift due to double color led
