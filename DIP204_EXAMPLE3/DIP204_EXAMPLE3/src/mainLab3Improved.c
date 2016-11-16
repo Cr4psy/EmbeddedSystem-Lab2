@@ -230,13 +230,13 @@ int main(void) {
 				/*Convert value to bytes*/
 				//Light
 				//Separate the 10 bits into 2 and 8;
-				msg[0] = adc_value_light >> 8;
-				msg[1] = adc_value_light & 0x00ff;
+				msg[0] = adc_value_temp >> 8;
+				msg[1] = adc_value_temp & 0x00ff;
 			
 				//Temperature
 				//Separate the 10 bits into 2 and 8;
-				msg[2] = adc_value_temp >> 8;
-				msg[3] = adc_value_temp & 0x00ff;
+				msg[2] = adc_value_light >> 8;
+				msg[3] = adc_value_light & 0x00ff;
 			
 				msg[4]=adc_value_pot;//Change the range form 0-1023 to 0-255 and convert to bytes
 			
