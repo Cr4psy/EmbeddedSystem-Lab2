@@ -64,9 +64,9 @@ const gpio_map_t ADC_GPIO_MAP = {
 
 UINT32 Ident;
 UINT8 msg[8], mSize;
-UINT32 ourID = 0x01206;
+UINT32 ourID = 0x01212;
 
-void displaySensors(int, int, int,int,int, int);
+void displaySensors(int, int, int,int,int, int, UINT8);
 void displayReceiveMsg();
 void LEDState(UINT8,UINT8, int); //Change the led state
 
@@ -153,7 +153,7 @@ int main(void) {
 	dip204_clear_display();
 		/*First message*/
 		dip204_set_cursor_position(1,1);
-		dip204_printf_string("Heja");
+		dip204_printf_string("Hej");
 		dip204_set_cursor_position(1,2);
 		dip204_printf_string("Petter and Anthony");
 		dip204_hide_cursor();
@@ -169,9 +169,14 @@ int main(void) {
 			ClearMessages(msg);
 			/*Read sensors values*/
 			adc_start(&AVR32_ADC);
-			adc_value_temp = adc_get_value(&AVR32_ADC,EXAMPLE_ADC_TEMPERATURE_CHANNEL);
+			//adc_value_temp = adc_get_value(&AVR32_ADC,EXAMPLE_ADC_TEMPERATURE_CHANNEL);
 			adc_value_light = adc_get_value(&AVR32_ADC,EXAMPLE_ADC_LIGHT_CHANNEL);
-			adc_value_pot = (adc_get_value(&AVR32_ADC,EXAMPLE_ADC_POTENTIOMETER_CHANNEL)*255)/1023;//Change the range form 0-1023 to 0-255 and convert to bytes
+			/*#####################################################################################################################*/
+			/*#####################################################################################################################*/
+			/*#####################################################################################################################*/
+			/*#####################################################################################################################*/
+			//Should be value pot
+			adc_value_temp = (adc_get_value(&AVR32_ADC,EXAMPLE_ADC_POTENTIOMETER_CHANNEL));//Change the range form 0-1023 to 0-255 and convert to bytes
 		}
 		
 		/*PRINT AND RESET*/	
@@ -179,10 +184,17 @@ int main(void) {
 		//Print on the display
 		if (timerCounter%(1500/timerTime) == 0)//Done every 1500ms
 		{
+			/*RESET*/
+			temp_avg = 0;
+			light_avg = 0;
+			pot_avg = 0;
+			nodeNight = 0;
+			nodeFault = 0;
+			nodeWarm = 0;
 			
 			//Compute the mean of the temp and light (include our own value)
 			for (i=0; i<counter; i++){
-				if (ValueSummer[i][5]!=TRUE)
+				if (ValueSummer[i][5]!=TRUE)//If the node is not in error
 				{
 					temp_avg = temp_avg + ValueSummer[i][0];
 					light_avg = light_avg + ValueSummer[i][1];
@@ -193,9 +205,10 @@ int main(void) {
 				nodeFault=nodeFault+ValueSummer[i][5];//# of faulty nodes			
 			}
 			//Compute the average and add the value of the actual board.
-			temp_avg=(temp_avg+adc_value_temp)/(counter-nodeFault+1);
-			light_avg=(light_avg+adc_value_light)/(counter-nodeFault+1);
-			pot_avg=(pot_avg+adc_value_pot)/(counter-nodeFault+1);
+			//-nodeFault
+			temp_avg=(temp_avg+adc_value_temp)/(counter+1);
+			light_avg=(light_avg+adc_value_light)/(counter+1);
+			pot_avg=(pot_avg+adc_value_pot)/(counter+1);
 			
 			/*Problems states for this node*/
 			flagState=0;//Reset flags
@@ -240,19 +253,16 @@ int main(void) {
 			
 			
 			//Print everything
-			displaySensors(counter+1,adc_value_pot,pot_avg,adc_value_light,light_avg,nodeNight);//Display and convert the sensors valuesadc_value_temp, temp_avg, +1 to take our node
+			displaySensors(counter+1,adc_value_temp,temp_avg,adc_value_light,light_avg, nodeNight, flagStatus);//Display and convert the sensors valuesadc_value_temp, temp_avg, +1 to take our node
 			
-			/*RESET*/		
+			LEDState(flagState, flagStatus, timerCounter);//Run every 10ms
+			
+			/*RESET*/
 			//Reset the values and ID
 			int ValueSummer[256][6] = {0};
 			UINT32 IDSummer[256] = {0};
-			counter=0;//Reset the number of ID
-			temp_avg=0;
-			light_avg=0;
-			pot_avg=0;
-			nodeNight=0;
-			nodeFault = 0;
-			nodeWarm = 0;
+			counter = 0;//Reset the number of ID
+
 					
 			
 		}
@@ -280,7 +290,7 @@ int main(void) {
 							ValueSummer[i][2] = msg[4];//pot
 							ValueSummer[i][3] = (msg[5] & 0b01);//Night
 							ValueSummer[i][4] = (msg[5] & 0b010)>>1;//Too warm
-							ValueSummer[counter][5] = (msg[5] & 0b100)>>2;//Faulty
+							ValueSummer[i][5] = (msg[5] & 0b100)>>2;//Faulty
 							flag=TRUE;
 							break;
 						}
@@ -312,13 +322,13 @@ int main(void) {
 				/*Convert value to bytes*/
 				//Light
 				//Separate the 10 bits into 2 and 8;
-				msg[0] = adc_value_light >> 8;
-				msg[1] = adc_value_light & 0x00ff;
+				msg[0] = adc_value_temp >> 8;
+				msg[1] = adc_value_temp & 0x00ff;
 			
 				//Temperature
 				//Separate the 10 bits into 2 and 8;
-				msg[2] = adc_value_temp >> 8;
-				msg[3] = adc_value_temp & 0x00ff;
+				msg[2] = adc_value_light >> 8;
+				msg[3] = adc_value_light & 0x00ff;
 				
 				//Potentiometer
 				msg[4]=adc_value_pot;//Change the range form 0-1023 to 0-255 and convert to bytes
@@ -332,7 +342,7 @@ int main(void) {
 		}
 		
 		
-		LEDState(flagState, flagStatus, timerCounter);//Run every 10ms
+		
 		
 		
 		delay_ms(timerTime);//Force the while loop to run max every timerTime ms
@@ -351,32 +361,38 @@ void LEDState(UINT8 flagState, UINT8 flagStatus, int timerCounter){//Night / war
 	LED_Off(0b111);
 	LED_On(flagState);
 	
-	//Status
+	/*STATUS*/
 	if (flagStatus == 0b000)//Normal
 	{
-		LED_On(0b1<<5);
-		LED_Off(0b1<<6);
+		LED_On(0b1<<5);//Turn on led 5
+		LED_Off(0b101<<4);//Turn off led 4 and 6
 	}
 	else{
 		LED_Off(0b1<<5);
-		if (flagStatus == 0b001)//Warning
+		if (((flagStatus >>0)& 0b01) == 1)//Warning
 		{
-			if(timerCounter%(2000/timerTime)){
-				LED_Toggle(0b1<<6);//Blink every second
+			LED_Off(0b1<<6);
+			if(timerCounter%(500/timerTime)==0){
+				LED_Toggle(0b1<<4);//Blink every second
 			}
 		}
-		else if (flagStatus == 0b010)//Emergency
+		else if (((flagStatus >>1)& 0b01) == 1)//Emergency
 		{
-			if(timerCounter%(100/timerTime)){
-				LED_Toggle(0b1<<6);//Blink every x second
+			if(timerCounter%(500/timerTime)==0){
+				LED_Toggle(0b101<<4);//Led 4 6 Blink every x second
 			}
+		}	
+	} 
+	
+	/*ONE NODE IS FAULTY*/
+	if (((flagStatus >>2)& 0b01) == 1)//Faulty
+	{
+		if(timerCounter%(200/timerTime)==0){
+			LED_Toggle(0b1<<3);//Blink every x second
 		}
-		else if (flagStatus == 0b100)//Faulty
-		{
-			if(timerCounter%(500/timerTime)){
-				LED_Toggle(0b1<<6);//Blink every x second
-			}
-		}
+	}
+	else{
+		LED_Off(0b1<<3);
 	}
 	
 	
@@ -384,7 +400,7 @@ void LEDState(UINT8 flagState, UINT8 flagStatus, int timerCounter){//Night / war
 }
 
 //Write on the display
-void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLight, int nodeNight){
+void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLight, int nodeNight,  UINT8 flagStatus){
 		
 		
 			/*Print on the display*/
@@ -403,7 +419,7 @@ void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLigh
 			dip204_printf_string("Temp:");
 			dip204_set_cursor_position(8,2);
 			dip204_printf_string("%d",temperature);
-			dip204_set_cursor_position(12,2);
+			dip204_set_cursor_position(13,2);
 			dip204_printf_string("%d", avgTemp);
 						
 			//Light
@@ -411,9 +427,30 @@ void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLigh
 			dip204_printf_string("Light:");
 			dip204_set_cursor_position(8,3);
 			dip204_printf_string("%d",light);
-			dip204_set_cursor_position(12,3);
+			dip204_set_cursor_position(13,3);
 			dip204_printf_string("%d", avgLight);
 			
+			//STATUS
+			if (flagStatus == 0b001)//Warning state
+			{
+				dip204_set_cursor_position(1,4);
+				dip204_printf_string("WARNING        ");
+			}
+			else if (flagStatus == 0b010)//Emergency state
+			{
+				dip204_set_cursor_position(1,4);
+				dip204_printf_string("EMERGENCY       ");
+			}
+			else if (flagStatus == 0b100)//Faulty state
+			{
+				dip204_set_cursor_position(1,4);
+				dip204_printf_string("FAULTY           ");
+			}
+			else//Normal status
+			{
+				dip204_set_cursor_position(1,4);
+				dip204_printf_string("                    ");
+			}
 		
 			return;
 			
