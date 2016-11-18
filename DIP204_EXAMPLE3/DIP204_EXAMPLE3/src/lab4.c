@@ -1,6 +1,12 @@
 /*
  * CFile1.c
  *
+ * Created: 2016-11-18 12:04:26
+ *  Author: clerc
+ */ 
+/*
+ * CFile1.c
+ *
  * Created: 2016-11-14 14:31:08
  *  Author: clerc
  */ 
@@ -64,12 +70,13 @@ const gpio_map_t ADC_GPIO_MAP = {
 
 UINT32 Ident;
 UINT8 msg[8], mSize;
-UINT32 ourID = 0x01204;
+UINT32 ourID = 0x01201;
 
 void displaySensors(int, int, int,int,int, int);
 void displayReceiveMsg();
 void LEDState(UINT8, int); //Change the led state
 void Button(int);
+void readTheBus();
 
 int timerTime = 10;//time between the execution of loop while
 UINT8 flagStatus = 0;/*	00 : Normal
@@ -77,10 +84,13 @@ UINT8 flagStatus = 0;/*	00 : Normal
 						10 : Emergency status
 						*/
 
+int ValueSummer[20][6] = {0};//Value received from node (temp, light, pot and status)
+UINT32 IDSummer[20] = {0};//Each ID received
+int counter = 0; //Count the number of ID
+
 int main(void) {
 	/*Variable*/
-	int i = 0;
-	bool flag = false;
+
 	int temp_avg = 0;
 	int light_avg = 0;
 	int pot_avg = 0;
@@ -89,9 +99,8 @@ int main(void) {
 	int nodeWarm = 0;
 	int timerCounter = 0;//Count the time
 
-	int counter = 0; //Count the number of ID
-	int ValueSummer[20][6] = {0};
-	UINT32 IDSummer[20] = {0};
+
+
 		
 	//Problems flag
 	UINT8 flagState = 0;/*	001 : night
@@ -173,14 +182,9 @@ int main(void) {
 			ClearMessages(msg);
 			/*Read sensors values*/
 			adc_start(&AVR32_ADC);
-			//adc_value_temp = adc_get_value(&AVR32_ADC,EXAMPLE_ADC_TEMPERATURE_CHANNEL);
+			adc_value_temp = adc_get_value(&AVR32_ADC,EXAMPLE_ADC_TEMPERATURE_CHANNEL);
 			adc_value_light = adc_get_value(&AVR32_ADC,EXAMPLE_ADC_LIGHT_CHANNEL);
-			/*#####################################################################################################################*/
-			/*#####################################################################################################################*/
-			/*#####################################################################################################################*/
-			/*#####################################################################################################################*/
-			//Should be value pot
-			adc_value_temp = (adc_get_value(&AVR32_ADC,EXAMPLE_ADC_POTENTIOMETER_CHANNEL));//*255/1023);//Change the range form 0-1023 to 0-255 and convert to bytes
+			adc_value_pot = ((adc_get_value(&AVR32_ADC,EXAMPLE_ADC_POTENTIOMETER_CHANNEL)*255)/1023);//Change the range form 0-1023 to 0-255 and convert to bytes
 		}
 		
 		/*PRINT AND RESET*/	
@@ -189,6 +193,7 @@ int main(void) {
 		if (timerCounter%(1500/timerTime) == 0)//Done every 1500ms
 		{
 			/*RESET*/
+			int i = 0;
 			temp_avg = 0;
 			light_avg = 0;
 			pot_avg = 0;
@@ -210,9 +215,9 @@ int main(void) {
 			}
 			//Compute the average and add the value of the actual board.
 			//-nodeFault
-			temp_avg=(temp_avg+adc_value_temp)/(counter+1);
-			light_avg=(light_avg+adc_value_light)/(counter+1);
-			pot_avg=(pot_avg+adc_value_pot)/(counter+1);
+			temp_avg=(temp_avg+adc_value_temp)/(counter+1-nodeFault);
+			light_avg=(light_avg+adc_value_light)/(counter+1-nodeFault);
+			pot_avg=(pot_avg+adc_value_pot)/(counter+1-nodeFault);
 			
 			/*Problems states for this node*/
 			flagState=0;//Reset flags
@@ -264,65 +269,18 @@ int main(void) {
 			
 			
 			//Print everything
-			displaySensors(counter+1,adc_value_temp,temp_avg,adc_value_light,light_avg, nodeNight);//Display and convert the sensors valuesadc_value_temp, temp_avg, +1 to take our node
-			
-			LEDState(flagState, timerCounter);//Run every 10ms
-			
-			
+			displaySensors(counter+1,adc_value_temp,temp_avg,adc_value_light,light_avg, nodeNight);//Display and convert the sensors valuesadc_value_temp, temp_avg, +1 to take our node	
 			
 			/*RESET*/
 			//Reset the values and ID
-			int ValueSummer[256][6] = {0};
-			UINT32 IDSummer[256] = {0};
 			counter = 0;//Reset the number of ID				
 		}
 		
-		Button(nodeWarm);
+		LEDState(flagState, timerCounter);//Change the state of the led (every 10 ms)
+		Button(nodeWarm);//Check if the button is pressed to acknowledge the alarm
 		
 		/*READ BUS*/
-		if(CANRxReady(0)){//If able to connect to the bus
-			if(CANGetMsg(0, &Ident, msg, &mSize )) // Gets message and returns //TRUE if message received.
-			{				
-				if (counter==0){//If no ID in the array
-					IDSummer[counter] = Ident; //Identifier
-					ValueSummer[counter][0] = (msg[0] << 8) | msg[1]; //Temperature
-					ValueSummer[counter][1] = (msg[2] << 8) | msg[3]; //Light
-					ValueSummer[counter][2] = msg[4];//Potentiometer
-					ValueSummer[counter][3] = (msg[5] & 0b001);//Night
-					ValueSummer[counter][4] = (msg[5] & 0b010)>>1;//Too warm
-					ValueSummer[counter][5] = (msg[5] & 0b100)>>2;//Faulty
-					counter++;//Nb of ID
-				}
-				else{//If already some ID in the array
-					flag=FALSE;
-					for (i=0; i<counter; i++){//Go through all the id values
-						if (IDSummer[i] == Ident){//If similar ID, refresh value and go out of for loop
-							ValueSummer[i][0] = (msg[0] << 8) | msg[1]; //Temperature
-							ValueSummer[i][1] = (msg[2] << 8) | msg[3]; //Light
-							ValueSummer[i][2] = msg[4];//pot
-							ValueSummer[i][3] = (msg[5] & 0b01);//Night
-							ValueSummer[i][4] = (msg[5] & 0b010)>>1;//Too warm
-							ValueSummer[i][5] = (msg[5] & 0b100)>>2;//Faulty
-							flag=TRUE;
-							break;
-						}
-					}
-					
-					if (flag==FALSE)//If it´s the first time that the id is detected, so we add the value to the array
-					{
-						IDSummer[counter] = Ident; //Identifier
-						ValueSummer[counter][0] = (msg[0] << 8) | msg[1]; //Temperature
-						ValueSummer[counter][1] = (msg[2] << 8) | msg[3]; //Light
-						ValueSummer[counter][2] = msg[4];//pot
-						ValueSummer[counter][3] = (msg[5] & 0b01);//Night
-						ValueSummer[counter][4] = (msg[5] & 0b010)>>1;//Too warm
-						ValueSummer[counter][5] = (msg[5] & 0b100)>>2;//Faulty
-						counter++;//Nb of ID
-					}
-				}//else
-			}//CANGetMsg()		
-		}//CANRxReady()
-		
+		readTheBus();
 		
 		/*SEND BUS*/
 		// Send messages if possible (every 500ms)
@@ -367,7 +325,55 @@ int main(void) {
 	return 0;
 }
 
-
+/*READ BUS FUNCTION*/
+void readTheBus(){
+		int i = 0;
+		bool flag = false;
+	
+	/*READ BUS*/
+		if(CANRxReady(0)){//If able to connect to the bus
+			if(CANGetMsg(0, &Ident, msg, &mSize )) // Gets message and returns //TRUE if message received.
+			{				
+				if (counter==0){//If no ID in the array
+					IDSummer[counter] = Ident; //Identifier
+					ValueSummer[counter][0] = (msg[0] << 8) | msg[1]; //Temperature
+					ValueSummer[counter][1] = (msg[2] << 8) | msg[3]; //Light
+					ValueSummer[counter][2] = msg[4];//Potentiometer
+					ValueSummer[counter][3] = (msg[5] & 0b001);//Night
+					ValueSummer[counter][4] = (msg[5] & 0b010)>>1;//Too warm
+					ValueSummer[counter][5] = (msg[5] & 0b100)>>2;//Faulty
+					counter++;//Nb of ID
+				}
+				else{//If already some ID in the array
+					flag=FALSE;
+					for (i=0; i<counter; i++){//Go through all the id values
+						if (IDSummer[i] == Ident){//If similar ID, refresh value and go out of for loop
+							ValueSummer[i][0] = (msg[0] << 8) | msg[1]; //Temperature
+							ValueSummer[i][1] = (msg[2] << 8) | msg[3]; //Light
+							ValueSummer[i][2] = msg[4];//pot
+							ValueSummer[i][3] = (msg[5] & 0b01);//Night
+							ValueSummer[i][4] = (msg[5] & 0b010)>>1;//Too warm
+							ValueSummer[i][5] = (msg[5] & 0b100)>>2;//Faulty
+							flag=TRUE;
+							break;
+						}
+					}
+					
+					if (flag==FALSE)//If it´s the first time that the id is detected, so we add the value to the array
+					{
+						IDSummer[counter] = Ident; //Identifier
+						ValueSummer[counter][0] = (msg[0] << 8) | msg[1]; //Temperature
+						ValueSummer[counter][1] = (msg[2] << 8) | msg[3]; //Light
+						ValueSummer[counter][2] = msg[4];//pot
+						ValueSummer[counter][3] = (msg[5] & 0b01);//Night
+						ValueSummer[counter][4] = (msg[5] & 0b010)>>1;//Too warm
+						ValueSummer[counter][5] = (msg[5] & 0b100)>>2;//Faulty
+						counter++;//Nb of ID
+					}
+				}//else
+			}//CANGetMsg()		
+		}//CANRxReady()
+}
 
 //BUTTON
 //Reset emergency mode
@@ -458,28 +464,34 @@ void displaySensors(int nbID, int temperature, int avgTemp,int light,int avgLigh
 			dip204_printf_string("%d", avgLight);
 			
 			//STATUS
-
+			
+				
 			if (((flagStatus >>1)& 0b01) == 1)//Emergency state
 			{
 				dip204_set_cursor_position(1,4);
-				dip204_printf_string("EMERGENCY       ");
+				dip204_printf_string("EMERGENCY           ");
 			}
 			else if (((flagStatus >>0)& 0b01) == 1)//Warning state
 			{
 				dip204_set_cursor_position(1,4);
-				dip204_printf_string("WARNING        ");
+				dip204_printf_string("WARNING           ");
 			}
-			/*else if (flagStatus == 0b100)//Faulty state
+			
+			if (((flagStatus >>2)& 0b01) == 1)//Faulty state
 			{
-				dip204_set_cursor_position(1,4);
-				dip204_printf_string("FAULTY           ");
-			}*/
-			else//Normal status
-			{
+				dip204_set_cursor_position(11,4);
+				dip204_printf_string("FAULTY");
+			}
+			
+			
+			if (flagStatus == 0)//Normal status
+			{	
 				dip204_set_cursor_position(1,4);
 				dip204_printf_string("                    ");
 			}
-		
+			
+
+						
 			return;
 			
 }
