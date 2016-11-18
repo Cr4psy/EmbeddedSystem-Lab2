@@ -660,7 +660,7 @@ Bool CANGetMsg( int Channel, UINT32* pIdentifier, UINT8* Msg, UINT8* pMsgSize )
         // Here is the identifier of the remote frame being set. When a remote frame messages with the same identifier as defined here the
         //node will respond with a user predefined message.
         //UINT8 RemoteFrameId=User defined;
-        LED_Off(LED2);
+        //LED_Off(LED2);
         if ( ((CAN2515ByteRead( Channel, RXB0CTRL ) & 0x08) || (CAN2515ByteRead( Channel, RXB1CTRL ) & 0x08)) && *pIdentifier==RemoteFrameId)
                     {
                     Msg[0] = 0;
